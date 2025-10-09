@@ -5,6 +5,12 @@ use super::Epub;
 
 pub struct Metadata;
 
+impl Default for Metadata {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Metadata {
     pub fn new() -> Self {
         Self
@@ -150,7 +156,7 @@ impl Metadata {
     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
         <dc:identifier id="BookId">docln:"#,
         );
-        content_opf.push_str(&format!("{}", epub.id));
+        content_opf.push_str(&epub.id.to_string());
         content_opf.push_str(
             r#"</dc:identifier>
         <dc:title>"#,

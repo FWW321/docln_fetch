@@ -46,7 +46,7 @@ impl Volume {
                 "        <img src=\"../images/{}\" alt=\"封面\" class=\"volume-cover-img\"/>",
                 cover_name
             ));
-            xhtml_content.push_str("\n");
+            xhtml_content.push('\n');
         }
 
         xhtml_content.push_str(

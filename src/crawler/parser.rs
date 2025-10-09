@@ -195,24 +195,10 @@ impl Parser {
 
     pub fn cover_url(&self, document: &Html) -> Option<String> {
         let cover_selector = Selector::parse("div.content.img-in-ratio").unwrap();
-
-        let Some(cover_div) = document.select(&cover_selector).next() else {
-            return None;
-        };
-
-        let Some(style) = cover_div.value().attr("style") else {
-            return None;
-        };
-
-        // 从style属性中提取URL: background-image: url('...')
-        let Some(start) = style.find("url('") else {
-            return None;
-        };
-
-        let start = start + 5; // 跳过 "url('"
-        let Some(end) = style[start..].find("')") else {
-            return None;
-        };
+        let cover_div = document.select(&cover_selector).next()?;
+        let style = cover_div.value().attr("style")?;
+        let start = style.find("url('")? + 5; // 跳过 "url('"
+        let end = style[start..].find("')")?;
 
         let image_url = &style[start..start + end];
 
@@ -231,7 +217,7 @@ impl Parser {
             let chapters = self.volume_chapters(document, &id, index);
             let cover_url = self.volume_cover_url(document, &id);
             let cover_chapter = Chapter {
-                title: title,
+                title,
                 url: String::new(),
                 has_illustrations: cover_url.is_some(),
                 filename: format!("{}_cover.xhtml", index + 1),
@@ -355,33 +341,12 @@ impl Parser {
         let volume_cover_selector =
             Selector::parse("div.volume-cover div.content.img-in-ratio").unwrap();
 
-        let Some(volume_header) = document.select(&volume_header_selector).next() else {
-            return None;
-        };
-
-        let Some(parent_element) = volume_header.parent_element() else {
-            return None;
-        };
-
-        let Some(cover_div) = parent_element.select(&volume_cover_selector).next() else {
-            return None;
-        };
-
-        let Some(style) = cover_div.value().attr("style") else {
-            return None;
-        };
-
-        // 从style属性中提取URL: background-image: url('...')
-        let Some(start) = style.find("url('") else {
-            return None;
-        };
-
-        let start = start + 5; // 跳过 "url('"
-
-        let Some(end) = style[start..].find("')") else {
-            return None;
-        };
-
+        let volume_header = document.select(&volume_header_selector).next()?;
+        let parent_element = volume_header.parent_element()?;
+        let cover_div = parent_element.select(&volume_cover_selector).next()?;
+        let style = cover_div.value().attr("style")?;
+        let start = style.find("url('")? + 5; // 跳过 "url('"
+        let end = style[start..].find("')")?;
         let image_url = &style[start..start + end];
 
         if image_url.contains("nocover") {

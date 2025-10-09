@@ -21,6 +21,12 @@ pub struct DoclnCrawler {
     downloader: Downloader,
 }
 
+impl Default for DoclnCrawler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DoclnCrawler {
     pub fn new() -> Self {
         Self {
@@ -54,7 +60,7 @@ impl DoclnCrawler {
 
         for volume in epub.volumes.iter_mut() {
             if let Some(volume_cover_url) = &volume.cover {
-                let (cover_bytes, extension) = self.downloader.image(&volume_cover_url).await?;
+                let (cover_bytes, extension) = self.downloader.image(volume_cover_url).await?;
                 let cover_name = processor.write_image(cover_bytes, extension).await?;
                 volume.cover = Some(cover_name);
             }

@@ -8,6 +8,12 @@ use zip::write::FileOptions;
 
 pub struct Compressor;
 
+impl Default for Compressor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Compressor {
     pub fn new() -> Self {
         Self
@@ -37,7 +43,7 @@ impl Compressor {
         }
 
         // 递归添加目录中的所有文件
-        self.add_directory_to_zip(&mut zip, epub_dir, "")?;
+        Self::add_directory_to_zip(&mut zip, epub_dir, "")?;
 
         // 完成ZIP文件
         zip.finish()?;
@@ -56,7 +62,6 @@ impl Compressor {
 
     /// 递归添加目录到ZIP文件
     fn add_directory_to_zip(
-        &self,
         zip: &mut ZipWriter<File>,
         dir: &Path,
         base_path: &str,
@@ -79,7 +84,7 @@ impl Compressor {
                 } else {
                     format!("{}/{}", base_path, file_name_str)
                 };
-                self.add_directory_to_zip(zip, &path, &new_base_path)?;
+                Self::add_directory_to_zip(zip, &path, &new_base_path)?;
             } else {
                 // 添加文件到ZIP
                 let zip_path = if base_path.is_empty() {

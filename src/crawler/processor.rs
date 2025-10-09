@@ -86,10 +86,10 @@ impl Processor {
         let image_path = self.image_dir.join(&filename);
         if image_path.exists() {
             println!("重复图片: {}", image_path.display());
-            return Ok(format!("{}", filename));
+            return Ok(filename.to_string());
         }
         fs::write(&image_path, &image_bytes).await?;
         println!("图片已保存到: {}", image_path.display());
-        Ok(format!("{}", filename))
+        Ok(filename.to_string())
     }
 }

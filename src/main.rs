@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
             Ok(novel_id) => {
                 println!("\n正在爬取 ID为 {} 的小说...", novel_id);
                 let start = Instant::now();
-                crawler.crawl_novel(novel_id).await;
+                crawler.generate_epub(novel_id).await?;
 
                 let duration = start.elapsed();
                 let total_ms = duration.as_millis();

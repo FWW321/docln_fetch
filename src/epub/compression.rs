@@ -6,9 +6,9 @@ use std::path::Path;
 use zip::ZipWriter;
 use zip::write::FileOptions;
 
-pub struct EpubCompressor;
+pub struct Compressor;
 
-impl EpubCompressor {
+impl Compressor {
     pub fn new() -> Self {
         Self
     }
@@ -17,14 +17,10 @@ impl EpubCompressor {
     pub fn compress_epub(&self, epub_dir: &Path) -> Result<String> {
         // 从目录名提取ID，目录名格式为 epub_{id}，转换为 docln_{id}
         let dir_name = epub_dir.file_name().unwrap().to_string_lossy();
-        let epub_filename = if dir_name.starts_with("epub_") {
-            format!("docln_{}.epub", &dir_name[5..])
-        } else {
-            format!("docln_{}.epub", &dir_name)
-        };
-        let epub_path = epub_dir.parent().unwrap().join(&epub_filename);
+        let filename = format!("{}.epub", dir_name);
+        let epub_path = epub_dir.parent().unwrap().join(&filename);
 
-        println!("正在压缩EPUB文件: {}", epub_filename);
+        println!("正在压缩EPUB文件: {}", filename);
 
         // 创建ZIP文件
         let file = File::create(&epub_path)?;
@@ -55,7 +51,7 @@ impl EpubCompressor {
             Err(e) => println!("清理失败: {}", e),
         }
 
-        Ok(epub_filename)
+        Ok(filename)
     }
 
     /// 递归添加目录到ZIP文件

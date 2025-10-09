@@ -3,5 +3,5 @@ pub mod epub;
 pub mod utils;
 
 pub use crawler::DoclnCrawler;
-pub use epub::{Chapter, Epub, EpubGenerator, Volume};
+pub use epub::{Chapter, Epub, Volume};
 pub use utils::get_user_input;

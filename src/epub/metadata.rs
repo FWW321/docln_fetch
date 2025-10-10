@@ -1,5 +1,6 @@
 use anyhow::Result;
 use tokio::fs;
+use tracing::{info, instrument};
 
 use super::Epub;
 
@@ -17,14 +18,19 @@ impl Metadata {
     }
 
     /// 生成mimetype文件
+    #[instrument(skip_all)]
     pub async fn mimetype(&self, epub: &Epub) -> Result<()> {
+        info!("正在生成mimetype文件");
         let mimetype_content = "application/epub+zip";
         fs::write(epub.epub_dir.join("mimetype"), mimetype_content).await?;
+        info!("mimetype文件生成完成");
         Ok(())
     }
 
     /// 生成container.xml文件
+    #[instrument(skip_all)]
     pub async fn container_xml(&self, epub: &Epub) -> Result<()> {
+        info!("正在生成container.xml文件");
         let container_content = r#"<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
     <rootfiles>
@@ -32,11 +38,14 @@ impl Metadata {
     </rootfiles>
 </container>"#;
         fs::write(epub.meta_dir.join("container.xml"), container_content).await?;
+        info!("container.xml文件生成完成");
         Ok(())
     }
 
     /// 生成content.opf文件
+    #[instrument(skip_all)]
     pub async fn content_opf(&self, epub: &Epub) -> Result<()> {
+        info!("正在生成content.opf文件");
         let mut content_opf = String::new();
         Self::opf_header(&mut content_opf);
         Self::opf_metadata(&mut content_opf, epub);
@@ -46,11 +55,14 @@ impl Metadata {
         Self::opf_footer(&mut content_opf);
 
         fs::write(epub.oebps_dir.join("content.opf"), content_opf).await?;
+        info!("content.opf文件生成完成");
         Ok(())
     }
 
     /// 生成toc.ncx文件
+    #[instrument(skip_all)]
     pub async fn toc_ncx(&self, epub: &Epub) -> Result<()> {
+        info!("正在生成toc.ncx文件");
         let mut toc_ncx = String::new();
 
         toc_ncx.push_str(
@@ -126,18 +138,21 @@ impl Metadata {
         );
 
         fs::write(epub.oebps_dir.join("toc.ncx"), toc_ncx).await?;
+        info!("toc.ncx文件生成完成");
         Ok(())
     }
 
     /// 生成所有元数据文件
+    #[instrument(skip_all)]
     pub async fn generate(&self, epub: &Epub) -> Result<()> {
+        info!("正在生成EPUB元数据文件");
         // 生成所有元数据文件
         self.mimetype(epub).await?;
         self.container_xml(epub).await?;
         self.content_opf(epub).await?;
         self.toc_ncx(epub).await?;
 
-        println!("EPUB元数据文件已生成");
+        info!("EPUB元数据文件已生成");
         Ok(())
     }
 }
@@ -150,7 +165,9 @@ impl Metadata {
         );
     }
 
+    #[instrument(skip_all)]
     fn opf_metadata(content_opf: &mut String, epub: &Epub) {
+        info!("正在生成opf的metadata部分");
         content_opf.push_str(
             r#"
     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
@@ -211,9 +228,12 @@ impl Metadata {
         <meta name="generator" content="docln-fetch"/>
     </metadata>"#,
         );
+        info!("opf的metadata部分生成完成");
     }
 
+    #[instrument(skip_all)]
     fn opf_manifest(content_opf: &mut String, epub: &Epub) {
+        info!("正在生成opf的manifest部分");
         // manifest内容
         content_opf.push_str(
             r#"
@@ -272,9 +292,12 @@ impl Metadata {
             }
         }
         content_opf.push_str(r#"    </manifest>"#);
+        info!("opf的manifest部分生成完成");
     }
 
+    #[instrument(skip_all)]
     fn opf_spine(content_opf: &mut String, epub: &Epub) {
+        info!("正在生成opf的spine部分");
         // spine内容
         content_opf.push_str(
             r#"
@@ -306,9 +329,12 @@ impl Metadata {
             r#"
     </spine>"#,
         );
+        info!("opf的spine部分生成完成");
     }
 
+    #[instrument(skip_all)]
     fn opf_guide(content_opf: &mut String, epub: &Epub) {
+        info!("正在生成opf的guide部分");
         let Some(cover_name) = &epub.cover else {
             return;
         };
@@ -319,6 +345,7 @@ impl Metadata {
     </guide>"#,
             cover_name
         ));
+        info!("opf的guide部分生成完成");
     }
 
     fn opf_footer(content_opf: &mut String) {

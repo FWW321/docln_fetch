@@ -1,20 +1,24 @@
 use std::collections::HashMap;
 
-use crate::epub::chapter::Chapter;
-use crate::{Volume, epub::Epub};
 use anyhow::Result;
 use scraper::{Element, Html, Selector};
+use tracing::{info, error, instrument};
+
+use crate::epub::chapter::Chapter;
+use crate::{Volume, epub::Epub};
 
 #[derive(Clone)]
 pub struct Parser;
 
 impl Parser {
+    #[instrument(skip_all)]
     pub fn chapter_content(&self, chapter: String) -> Result<String> {
         let mut chapter_paragraphs = Vec::new();
         // Html结构体不是Send的，所以不能跨越await点
         // 需要在await点之前drop掉
         let document = Html::parse_document(&chapter);
 
+        info!("正在解析章节内容");
         // 提取章节内容
         let chapter_content_selector = Selector::parse("div#chapter-content")
             .map_err(|e| anyhow::anyhow!("无法解析章节内容选择器: {}", e))?;
@@ -27,7 +31,7 @@ impl Parser {
                 chapter_paragraphs.push(p_element.html());
             }
         }
-
+        info!("章节内容解析完成");
         Ok(chapter_paragraphs.join("\n"))
     }
 
@@ -48,10 +52,11 @@ impl Parser {
         srcs
     }
 
+    #[instrument(skip_all)]
     pub fn novel_title(&self, document: &Html) -> Result<String> {
         let title_selector = Selector::parse("span.series-name > a")
             .map_err(|e| anyhow::anyhow!("无法解析标题选择器: {}", e))?;
-
+            info!("正在解析小说标题");
         let title = document
             .select(&title_selector)
             .next()
@@ -60,14 +65,16 @@ impl Parser {
             .collect::<String>()
             .trim()
             .to_string();
-
+        info!("小说标题解析完成: {}", title);
         Ok(title)
     }
 
+    #[instrument(skip_all)]
     pub fn summary(&self, document: &Html) -> Result<String> {
         let summary_selector = Selector::parse("div.summary-content > p")
             .map_err(|e| anyhow::anyhow!("无法解析简介选择器: {}", e))?;
 
+        info!("正在解析小说简介");
         let summary_paragraphs: Vec<String> = document
             .select(&summary_selector)
             .map(|p| p.text().collect::<String>().trim().to_string())
@@ -77,7 +84,7 @@ impl Parser {
         if summary_paragraphs.is_empty() {
             return Err(anyhow::anyhow!("未找到简介内容"));
         }
-
+        info!("小说简介解析完成");
         Ok(summary_paragraphs.join("\n"))
     }
 
@@ -121,21 +128,27 @@ impl Parser {
         Ok(info_map)
     }
 
-    pub fn author(&self, document: &Html) -> Result<String> {
-        let items = self.items(document)?;
+    #[instrument(skip_all)]
+    pub fn author(&self, items: &HashMap<String, String>) -> Result<String> {
+        info!("正在解析作者信息");
         if let Some(author) = items.get("Tác giả:") {
+            info!("作者信息解析完成: {}", author);
             Ok(author.clone())
         } else {
+            error!("未找到作者信息");
             Err(anyhow::anyhow!("未找到作者信息"))
         }
     }
 
-    pub fn illustrator(&self, document: &Html) -> Result<Option<String>> {
-        let items = self.items(document)?;
+    #[instrument(skip_all)]
+    pub fn illustrator(&self, items: &HashMap<String, String>) -> Result<Option<String>> {
+        info!("正在解析插画师信息");
         if let Some(illustrator) = items.get("Họa sĩ:") {
             if !illustrator.is_empty() {
+                info!("插画师信息解析完成: {}", illustrator);
                 Ok(Some(illustrator.clone()))
             } else {
+                info!("未找到插画师信息");
                 Ok(None)
             }
         } else {
@@ -143,28 +156,34 @@ impl Parser {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn tags(&self, document: &Html) -> Vec<String> {
         let mut tags = Vec::new();
-        let tags_selector = Selector::parse("div.series-genres > a").expect("无法创建tags选择器");
+        let tags_selector = Selector::parse("div.series-gernes > a").expect("无法创建tags选择器");
 
         for tag_element in document.select(&tags_selector) {
+            println!("tag_element: {:?}", tag_element);
             let tag_text = tag_element.text().collect::<String>().trim().to_string();
             if !tag_text.is_empty() {
                 tags.push(tag_text);
             }
         }
-
+        info!("标签信息解析完成: {:?}", tags);
         tags
     }
 
+    #[instrument(skip_all)]
     pub fn novel_info(&self, novel_html: &str, novel_id: String) -> Result<Epub> {
+        info!("正在解析小说信息");
         let document = Html::parse_document(novel_html);
 
         let title = self.novel_title(&document)?;
 
-        let author = self.author(&document)?;
+            let items = self.items(&document)?;
 
-        let illustrator = self.illustrator(&document)?;
+        let author = self.author(&items)?;
+
+        let illustrator = self.illustrator(&items)?;
 
         let summary = self.summary(&document)?;
 
@@ -191,10 +210,13 @@ impl Parser {
             text_dir: Default::default(),
         };
 
+        info!("小说信息解析完成");
         Ok(epub)
     }
 
+    #[instrument(skip_all)]
     pub fn cover_url(&self, document: &Html) -> Option<String> {
+        info!("正在解析封面图片信息");
         let cover_selector = Selector::parse("div.content.img-in-ratio").unwrap();
         let cover_div = document.select(&cover_selector).next()?;
         let style = cover_div.value().attr("style")?;
@@ -204,14 +226,17 @@ impl Parser {
         let image_url = &style[start..start + end];
 
         if image_url.contains("nocover") {
-            println!("使用默认封面图片，跳过下载");
+            info!("使用默认封面图片，跳过下载");
             return None;
         }
 
+        info!("封面图片解析完成: {}", image_url);
         Some(image_url.to_string())
     }
 
+    #[instrument(skip_all)]
     pub fn volumes(&self, document: &Html) -> Result<Vec<Volume>> {
+        info!("正在解析卷和章节信息");
         let mut volumes = Vec::new();
         let volume_infos = self.volume_info(document);
         for (index, (title, id)) in volume_infos.into_iter().enumerate() {
@@ -233,10 +258,13 @@ impl Parser {
                 cover_chapter,
             });
         }
+        info!("卷和章节信息解析完成");
         Ok(volumes)
     }
 
+    #[instrument(skip_all)]
     pub fn volume_info(&self, document: &Html) -> Vec<(String, String)> {
+        info!("正在解析卷信息");
         let mut volumes = Vec::new();
         let list_vol_section_selector = Selector::parse("section#list-vol").unwrap();
         let list_volume_selector = Selector::parse("ol.list-volume").unwrap();
@@ -271,10 +299,13 @@ impl Parser {
             }
         }
 
+        info!("卷信息解析完成，共 {} 卷", volumes.len());
         volumes
     }
 
+    #[instrument(skip_all)]
     pub fn volume_chapters(&self, document: &Html, volume_id: &str, index: usize) -> Vec<Chapter> {
+        info!("正在解析第 {} 卷的章节信息", index + 1);
         let mut chapters = Vec::new();
 
         // 根据volume_id找到对应的卷元素
@@ -335,10 +366,17 @@ impl Parser {
             }
         }
 
+        info!(
+            "第 {} 卷的章节信息解析完成，共 {} 章",
+            index + 1,
+            chapters.len()
+        );
         chapters
     }
 
+    #[instrument(skip_all)]
     pub fn volume_cover_url(&self, document: &Html, volume_id: &str) -> Option<String> {
+        info!("正在解析卷封面图片信息");
         let volume_element_id = volume_id.trim_start_matches('#');
         let volume_header_selector =
             Selector::parse(&format!("header#{}", volume_element_id)).unwrap();
@@ -354,10 +392,10 @@ impl Parser {
         let image_url = &style[start..start + end];
 
         if image_url.contains("nocover") {
-            println!("使用默认封面图片，跳过下载");
+            info!("使用默认封面图片，跳过下载");
             return None;
         }
-
+        info!("卷封面图片解析完成: {}", image_url);
         Some(image_url.to_string())
     }
 }

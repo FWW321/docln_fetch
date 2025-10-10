@@ -6,6 +6,7 @@ pub mod volume;
 pub use chapter::Chapter;
 pub use compression::Compressor;
 pub use metadata::Metadata;
+use tracing::{info, instrument};
 pub use volume::Volume;
 
 use anyhow::Result;
@@ -29,8 +30,9 @@ pub struct Epub {
 }
 
 impl Epub {
+    #[instrument(skip_all)]
     pub async fn generate(&self) -> Result<String> {
-        // 创建 EPUB 结构体
+        info!("正在生成EPUB文件: {}", self.title);
 
         let metadata = Metadata::new();
 
@@ -41,7 +43,7 @@ impl Epub {
         let compressor = Compressor::new();
         let epub_filename = compressor.compress_epub(&self.epub_dir).await?;
 
-        println!("EPUB文件生成成功: {}", epub_filename);
+        info!("EPUB文件生成成功: {}", epub_filename);
         Ok(epub_filename)
     }
 }

@@ -4,4 +4,4 @@ pub mod utils;
 
 pub use crawler::DoclnCrawler;
 pub use epub::{Chapter, Epub, Volume};
-pub use utils::get_user_input;
+pub use utils::{get_user_input, display_elapsed_time};

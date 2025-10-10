@@ -4,6 +4,7 @@ use anyhow::{Ok, Result};
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
 use tokio::fs;
+use tracing::{info, instrument};
 
 use crate::epub::chapter::Chapter;
 
@@ -41,7 +42,9 @@ impl Processor {
         }
     }
 
+    #[instrument(skip_all)]
     pub async fn write_chapter(&self, chapter_content: String, chapter: &Chapter) -> Result<()> {
+        info!("正在保存章节: {}", chapter.title);
         // 创建XHTML内容 - 在body下创建div容器
         let mut xhtml_content = String::new();
 
@@ -59,16 +62,18 @@ impl Processor {
         let xhtml_path = self.text_dir.join(&chapter.filename);
         fs::write(&xhtml_path, xhtml_content).await?;
 
-        println!("章节 XHTML 已保存到: {}", xhtml_path.display());
+        info!("章节 XHTML 已保存到: {}", xhtml_path.display());
 
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub async fn write_html(&self, html: String, chapter: &Chapter) -> Result<()> {
+        info!("正在保存章节: {}", chapter.title);
         let html_path = self.text_dir.join(&chapter.filename);
         fs::write(&html_path, html).await?;
 
-        println!("章节 HTML 已保存到: {}", html_path.display());
+        info!("章节 HTML 已保存到: {}", html_path.display());
 
         Ok(())
     }
@@ -78,19 +83,20 @@ impl Processor {
     // 而不是声明一个引用然后在函数体内克隆
     // 用hash来命名插图文件，避免下载重复的插图
     // 不用hashmap缓存会导致重复计算hash，但是这样逻辑更简单
+    #[instrument(skip_all)]
     pub async fn write_image(&self, image_bytes: Bytes, extension: String) -> Result<String> {
-        println!("正在保存图片: {}", extension);
+        info!("正在保存图片: {}", extension);
         let mut hasher = Sha256::new();
         hasher.update(&image_bytes);
         let hash = hasher.finalize();
         let filename = format!("{:x}.{}", hash, extension);
         let image_path = self.image_dir.join(&filename);
         if image_path.exists() {
-            println!("重复图片: {}", image_path.display());
+            info!("重复图片: {}", image_path.display());
             return Ok(filename.to_string());
         }
         fs::write(&image_path, &image_bytes).await?;
-        println!("图片已保存到: {}", image_path.display());
+        info!("图片已保存到: {}", image_path.display());
         Ok(filename.to_string())
     }
 }

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use tokio::fs;
+use tracing::{error, info, instrument};
 
 use crate::epub::{Chapter, Epub, Volume};
 use downloader::Downloader;
@@ -16,6 +17,9 @@ use parser::Parser;
 pub use task::TaskManager;
 
 type Processor = Arc<processor::Processor>;
+type ChapterTaskManager = TaskManager<Chapter>;
+type VolumeTaskManager = TaskManager<(Volume, ChapterTaskManager)>;
+type EpubTaskManager = TaskManager<(Epub, VolumeTaskManager)>;
 
 // static MAX_RETRIES: u32 = 3;
 
@@ -38,7 +42,91 @@ impl DoclnCrawler {
         }
     }
 
-    pub async fn generate_epub(&self, novel_id: String) -> Result<()> {
+    pub async fn crawl(&self, ids: Vec<String>) -> Result<()> {
+        let mut epub_tasks = Self::epub_tasks(ids, &self.downloader, &self.parser);
+        let results = epub_tasks.wait().await?;
+        for (mut epub, mut volume_tasks) in results {
+            Self::set_epub_volumes(&mut epub, &mut volume_tasks).await?;
+            let _ = epub.generate().await?;
+        }
+        Ok(())
+    }
+}
+
+impl DoclnCrawler {
+        #[instrument(skip_all)]
+    async fn set_epub_volumes(epub: &mut Epub, volume_tasks: &mut VolumeTaskManager) -> Result<()> {
+        info!("正在整合小说的卷信息");
+        let results = volume_tasks.wait().await?;
+        for (mut volume, mut chapter_tasks) in results {
+            info!("正在整合第 {} 卷", volume.index + 1);
+            let chapters = chapter_tasks.wait().await?;
+            volume.chapters = chapters;
+            info!("正在排序第 {} 卷的章节", volume.index + 1);
+            volume.chapters.sort_by_key(|c| c.index);
+            info!("完成整合第 {} 卷", volume.index + 1);
+            epub.volumes.push(volume);
+        }
+        info!("正在排序小说的卷信息");
+        epub.volumes.sort_by_key(|v| v.index);
+        info!("完成整合小说的卷信息");
+        Ok(())
+    }
+
+    fn epub_tasks(ids: Vec<String>, downloader: &Downloader, parser: &Parser) -> EpubTaskManager {
+        let mut task_manager = TaskManager::new();
+        for id in ids {
+            let downloader = downloader.clone();
+            let parser = parser.clone();
+
+            let epub_future = Self::epub_task(id, downloader, parser);
+            task_manager.spawn(epub_future);
+        }
+        task_manager
+    }
+
+    fn volume_tasks(
+        volumes: Vec<Volume>,
+        processor: &Processor,
+        downloader: &Downloader,
+        parser: &Parser,
+    ) -> VolumeTaskManager {
+        let mut task_manager = TaskManager::new();
+        for volume in volumes {
+            let processor = processor.clone();
+            let downloader = downloader.clone();
+            let parser = parser.clone();
+
+            let volume_future = Self::volume_task(volume, processor, downloader, parser);
+            task_manager.spawn(volume_future);
+        }
+        task_manager
+    }
+
+    fn chapter_tasks(
+        chapters: Vec<Chapter>,
+        processor: &Processor,
+        downloader: &Downloader,
+        parser: &Parser,
+    ) -> ChapterTaskManager {
+        let mut task_manager = TaskManager::new();
+        for chapter in chapters {
+            let downloader = downloader.clone();
+            let parser = parser.clone();
+            let processor = processor.clone();
+            let chapter_future = Self::chapter_task(chapter, processor, downloader, parser);
+            task_manager.spawn(chapter_future);
+        }
+        task_manager
+    }
+
+    #[instrument(skip_all)]
+    pub async fn epub_task(
+        novel_id: String,
+        downloader: Downloader,
+        parser: Parser,
+    ) -> Result<(Epub, VolumeTaskManager)> {
+        info!("正在爬取 ID为 {} 的小说...", novel_id);
         let epub_name = format!("docln_{}", novel_id);
         let epub_dir = PathBuf::from(&epub_name);
         let meta_dir = epub_dir.join("META-INF");
@@ -56,22 +144,16 @@ impl DoclnCrawler {
             image_dir.clone(),
             text_dir.clone(),
         ));
-        let novel_html = self.downloader.novel_info(&novel_id).await?;
-        let mut epub = self.parser.novel_info(&novel_html, novel_id)?;
+        let novel_html = downloader.novel_info(&novel_id).await?;
+        let mut epub = parser.novel_info(&novel_html, novel_id)?;
         if let Some(cover_url) = epub.cover {
-            let (cover_bytes, extension) = self.downloader.image(&cover_url).await?;
+            let (cover_bytes, extension) = downloader.image(&cover_url).await?;
             let cover_name = processor.write_image(cover_bytes, extension).await?;
             epub.cover = Some(cover_name);
         }
 
-        let mut task_manager = Self::volume_tasks(
-            take(&mut epub.volumes),
-            &processor,
-            &self.downloader,
-            &self.parser,
-        );
-
-        Self::set_epub_volumes(&mut epub, &mut task_manager).await?;
+        let volume_tasks =
+            Self::volume_tasks(take(&mut epub.volumes), &processor, &downloader, &parser);
 
         epub.epub_dir = epub_dir;
         epub.meta_dir = meta_dir;
@@ -79,116 +161,63 @@ impl DoclnCrawler {
         epub.image_dir = image_dir;
         epub.text_dir = text_dir;
 
-        epub.generate().await?;
-
-        Ok(())
-    }
-}
-
-impl DoclnCrawler {
-    async fn set_epub_volumes(
-        epub: &mut Epub,
-        volume_tasks: &mut TaskManager<(Volume, TaskManager<Chapter>)>,
-    ) -> Result<()> {
-        let results = volume_tasks.wait().await?;
-        let (volumes, mut chapter_tasks): (Vec<_>, Vec<_>) = results.into_iter().unzip();
-        epub.volumes = volumes.into_iter().collect();
-
-        for volume in epub.volumes.iter_mut().rev() {
-            let chapters = chapter_tasks.pop().unwrap().wait().await?;
-            volume.chapters = chapters.into_iter().collect();
-            volume.chapters.sort_by_key(|c| c.index);
-        }
-        epub.volumes.sort_by_key(|v| v.index);
-        Ok(())
+        info!("完成爬取 ID为 {} 的小说", epub.id);
+        Ok((epub, volume_tasks))
     }
 
-    fn volume_tasks(
-        volumes: Vec<Volume>,
-        processor: &Processor,
-        downloader: &Downloader,
-        parser: &Parser,
-    ) -> TaskManager<(Volume, TaskManager<Chapter>)> {
-        let mut task_manager: TaskManager<(Volume, TaskManager<Chapter>)> = TaskManager::new();
-        for volume in volumes {
-            let processor = processor.clone();
-            let downloader = downloader.clone();
-            let parser = parser.clone();
-
-            let volume_future = Self::volume_task(volume, processor, downloader, parser);
-            task_manager.spawn(volume_future);
-        }
-        task_manager
-    }
-
-    fn chapter_tasks(
-        chapters: Vec<Chapter>,
-        processor: &Processor,
-        downloader: &Downloader,
-        parser: &Parser,
-    ) -> TaskManager<Chapter> {
-        let mut task_manager: TaskManager<Chapter> = TaskManager::new();
-        for chapter in chapters {
-            let downloader = downloader.clone();
-            let parser = parser.clone();
-            let processor = processor.clone();
-            let chapter_future = Self::chapter_task(chapter, processor, downloader, parser);
-            task_manager.spawn(chapter_future);
-        }
-        task_manager
-    }
-
-    fn volume_task(
+    #[instrument(skip_all)]
+    async fn volume_task(
         mut volume: Volume,
         processor: Processor,
         downloader: Downloader,
         parser: Parser,
-    ) -> impl Future<Output = Result<(Volume, TaskManager<Chapter>)>> {
-        async move {
-            if let Some(volume_cover_url) = &volume.cover {
-                let (cover_bytes, extension) = downloader.image(volume_cover_url).await?;
-                let cover_name = processor.write_image(cover_bytes, extension).await?;
-                volume.cover = Some(cover_name);
-            }
-
-            let cover_html = volume.cover_html();
-            processor
-                .write_html(cover_html, &volume.cover_chapter)
-                .await?;
-            let chapter_tasks =
-                Self::chapter_tasks(take(&mut volume.chapters), &processor, &downloader, &parser);
-            Ok((volume, chapter_tasks))
+    ) -> Result<(Volume, ChapterTaskManager)> {
+        info!("正在处理第 {} 卷", volume.index + 1);
+        if let Some(volume_cover_url) = &volume.cover {
+            let (cover_bytes, extension) = downloader.image(volume_cover_url).await?;
+            let cover_name = processor.write_image(cover_bytes, extension).await?;
+            volume.cover = Some(cover_name);
         }
+
+        let cover_html = volume.cover_html();
+        processor
+            .write_html(cover_html, &volume.cover_chapter)
+            .await?;
+        let chapter_tasks =
+            Self::chapter_tasks(take(&mut volume.chapters), &processor, &downloader, &parser);
+        info!("完成处理第 {} 卷", volume.index + 1);
+        Ok((volume, chapter_tasks))
     }
 
-    fn chapter_task(
+    #[instrument(skip_all)]
+    async fn chapter_task(
         mut chapter: Chapter,
         processor: Processor,
         downloader: Downloader,
         parser: Parser,
-    ) -> impl Future<Output = Result<Chapter>> {
-        async move {
-            let chapter_html = downloader.chapter(&chapter.url).await?;
-            let mut content = parser.chapter_content(chapter_html)?;
-            if chapter.has_illustrations {
-                let srcs = parser.chapter_srcs(&content);
-                for src in srcs {
-                    let Ok((image_bytes, extension)) = downloader.image(&src).await else {
-                        println!("图片下载失败: {}", src);
-                        continue;
-                    };
+    ) -> Result<Chapter> {
+        info!("正在处理第 {} 章: {}", chapter.index + 1, chapter.title);
+        let chapter_html = downloader.chapter(&chapter.url).await?;
+        let mut content = parser.chapter_content(chapter_html)?;
+        if chapter.has_illustrations {
+            let srcs = parser.chapter_srcs(&content);
+            for src in srcs {
+                let Ok((image_bytes, extension)) = downloader.image(&src).await else {
+                    error!("图片下载失败: {}", src);
+                    continue;
+                };
 
-                    let Ok(image_name) = processor.write_image(image_bytes, extension).await else {
-                        println!("图片保存失败: {}", src);
-                        continue;
-                    };
+                let Ok(image_name) = processor.write_image(image_bytes, extension).await else {
+                    error!("图片保存失败: {}", src);
+                    continue;
+                };
 
-                    content = content.replace(&src, &format!("../images/{}", image_name));
-                    chapter.images.push(image_name);
-                }
+                content = content.replace(&src, &format!("../images/{}", image_name));
+                chapter.images.push(image_name);
             }
-            processor.write_chapter(content, &chapter).await?;
-            Ok(chapter)
         }
+        processor.write_chapter(content, &chapter).await?;
+        info!("完成处理第 {} 章: {}", chapter.index + 1, chapter.title);
+        Ok(chapter)
     }
 }

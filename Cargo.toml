@@ -1,6 +1,10 @@
+[[bin]]
+name = "docln-fetch"
+path = "src/main.rs"
+
 [package]
 name = "docln_fetch"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -12,14 +16,23 @@ sha2 = "0.10"
 bytes = "1.10"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1", features = ["full"] }
-async_zip = { version = "0.0.18", features = ["tokio", "deflate", "tokio-fs"] }
+
+[dependencies.reqwest]
+version = "0.12"
+features = ["json"]
+
+[dependencies.tokio]
+version = "1"
+features = ["full"]
+
+[dependencies.async_zip]
+version = "0.0.18"
+features = [
+    "tokio",
+    "deflate",
+    "tokio-fs",
+]
 
 [profile.release]
 lto = true
 strip = true
-
-[[bin]]
-name = "docln-fetch"
-path = "src/main.rs"

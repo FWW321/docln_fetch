@@ -9,10 +9,9 @@ pub use metadata::Metadata;
 pub use volume::Volume;
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Epub {
     pub id: String,
     pub title: String,
@@ -40,7 +39,7 @@ impl Epub {
 
         // 压缩成EPUB文件
         let compressor = Compressor::new();
-        let epub_filename = compressor.compress_epub(&self.epub_dir)?;
+        let epub_filename = compressor.compress_epub(&self.epub_dir).await?;
 
         println!("EPUB文件生成成功: {}", epub_filename);
         Ok(epub_filename)

@@ -5,6 +5,7 @@ use crate::{Volume, epub::Epub};
 use anyhow::Result;
 use scraper::{Element, Html, Selector};
 
+#[derive(Clone)]
 pub struct Parser;
 
 impl Parser {
@@ -217,6 +218,7 @@ impl Parser {
             let chapters = self.volume_chapters(document, &id, index);
             let cover_url = self.volume_cover_url(document, &id);
             let cover_chapter = Chapter {
+                index: 0,
                 title,
                 url: String::new(),
                 has_illustrations: cover_url.is_some(),
@@ -224,6 +226,7 @@ impl Parser {
                 images: Vec::new(),
             };
             volumes.push(Volume {
+                index,
                 id,
                 cover: cover_url,
                 chapters,
@@ -322,6 +325,7 @@ impl Parser {
 
             if !chapter_title.is_empty() && !chapter_url.is_empty() {
                 chapters.push(Chapter {
+                    index: chapter_index,
                     title: chapter_title,
                     url: chapter_url,
                     has_illustrations,

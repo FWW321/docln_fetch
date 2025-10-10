@@ -1,7 +1,6 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Chapter {
+    pub index: usize,
     pub title: String,
     pub url: String,
     pub has_illustrations: bool, // 是否包含插图

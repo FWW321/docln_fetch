@@ -27,6 +27,7 @@ static XML_CONTENT_4: &str = r#"    </div>
 </body>
 </html>"#;
 
+#[derive(Clone)]
 pub struct Processor {
     image_dir: PathBuf,
     text_dir: PathBuf,

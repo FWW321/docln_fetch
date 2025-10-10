@@ -1,13 +1,15 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{Ok, Result};
 use bytes::Bytes;
 use reqwest::{Client, StatusCode};
 use tokio::fs;
 
+#[derive(Clone)]
 pub struct Downloader {
     client: Client,
-    base_url: String,
+    base_url: Arc<String>,
 }
 
 impl Downloader {
@@ -24,6 +26,8 @@ impl Downloader {
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .build()
             .unwrap();
+
+        let base_url = Arc::new(base_url);
 
         // 定义重试策略：指数退避，最多重试3次
         // let retry_policy = ExponentialBackoff::builder().build_with_max_retries(MAX_RETRIES);
@@ -66,17 +70,15 @@ impl Downloader {
             .unwrap_or("jpg");
 
         // 下载图片
-        let response = self
-            .client
-            .get(image_url)
-            .send()
-            .await?;
+        let response = self.client.get(image_url).send().await?;
 
-        let image_bytes = response
-            .bytes()
-            .await?;
+        let image_bytes = response.bytes().await?;
 
-        println!("图片下载成功: {} ({} KB)", image_url, image_bytes.len() / 1024);
+        println!(
+            "图片下载成功: {} ({} KB)",
+            image_url,
+            image_bytes.len() / 1024
+        );
 
         Ok((image_bytes, extension.to_owned()))
     }

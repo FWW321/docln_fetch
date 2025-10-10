@@ -1,10 +1,9 @@
-use serde::{Deserialize, Serialize};
-
 use crate::epub::chapter::Chapter;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Volume {
     // pub title: String,
+    pub index: usize,
     pub id: String,
     pub cover: Option<String>,
     pub chapters: Vec<Chapter>,

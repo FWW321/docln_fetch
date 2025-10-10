@@ -1,8 +1,10 @@
 use anyhow::Result;
 use async_zip::tokio::write::ZipFileWriter;
 use async_zip::{Compression, ZipEntryBuilder};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::fs::{self, File};
+
+use crate::crawler::TaskManager;
 
 pub struct Compressor;
 
@@ -63,15 +65,36 @@ impl Compressor {
     }
 
     async fn add_directory(writer: &mut ZipFileWriter<File>, root_dir: &Path) -> Result<()> {
+        // 创建任务管理器
+        let mut task_manager = TaskManager::new();
+
+        // 扫描目录并创建并发任务
+        Self::scan_and_spawn_tasks(&mut task_manager, root_dir.to_path_buf()).await?;
+
+        // 等待所有任务完成并收集结果
+        let results = task_manager.wait().await?;
+
+        // 将结果写入ZIP文件（按顺序保证稳定性）
+        for (zip_path, content) in results {
+            let entry = ZipEntryBuilder::new(zip_path.into(), Compression::Deflate);
+            writer.write_entry_whole(entry, &content).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn scan_and_spawn_tasks(
+        task_manager: &mut TaskManager<(String, Vec<u8>)>,
+        root_dir: PathBuf,
+    ) -> Result<()> {
         // 使用栈存储待处理的目录和其在ZIP中的基础路径
-        let mut stack = vec![(root_dir.to_path_buf(), String::new())];
+        let mut stack = vec![(root_dir, String::new())];
 
         while let Some((current_dir, current_base_path)) = stack.pop() {
             let mut entries = fs::read_dir(&current_dir).await?;
 
             // 先收集所有条目，稍后处理
             let mut sub_dirs = Vec::new();
-            let mut files = Vec::new();
 
             while let Some(entry) = entries.next_entry().await? {
                 let path = entry.path();
@@ -90,39 +113,22 @@ impl Compressor {
                 };
 
                 if path.is_dir() {
+                    // 记录子目录稍后处理
                     sub_dirs.push((path, zip_path));
                 } else {
-                    files.push((path, zip_path));
+                    // 为每个文件创建并发任务
+                    task_manager.spawn(async move {
+                        let content = fs::read(&path).await?;
+                        Ok::<_, anyhow::Error>((zip_path, content))
+                    });
                 }
             }
 
-            // 处理当前目录下的文件 - 使用 add_file 函数
-            for (file_path, zip_path) in files {
-                Self::add_file(writer, &file_path, &zip_path).await?;
-            }
-
-            // 将子目录压入栈中（逆序以保证处理顺序）
+            // 将子目录逆序压入栈中（保证处理顺序）
             for (dir_path, zip_path) in sub_dirs.into_iter().rev() {
                 stack.push((dir_path, zip_path));
             }
         }
-
-        Ok(())
-    }
-
-    async fn add_file(
-        writer: &mut ZipFileWriter<File>,
-        file_path: &Path,
-        zip_path: &str,
-    ) -> Result<()> {
-        println!("正在添加文件: {}", zip_path);
-
-        // 读取文件内容
-        let content = fs::read(file_path).await?;
-
-        // 创建ZIP条目并写入
-        let entry = ZipEntryBuilder::new(zip_path.into(), Compression::Deflate);
-        writer.write_entry_whole(entry, &content).await?;
 
         Ok(())
     }

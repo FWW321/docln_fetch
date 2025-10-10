@@ -88,38 +88,15 @@ impl DoclnCrawler {
 impl DoclnCrawler {
     async fn set_epub_volumes(
         epub: &mut Epub,
-        volume_tasks: &mut TaskManager<Result<(Volume, TaskManager<Result<Chapter>>)>>,
+        volume_tasks: &mut TaskManager<(Volume, TaskManager<Chapter>)>,
     ) -> Result<()> {
-        let results = volume_tasks.wait().await;
-        let (volumes, mut chapter_tasks): (Vec<_>, Vec<_>) = results
-            .into_iter()
-            .map(|r| {
-                if let Ok((v, c)) = r {
-                    (Ok(v), c)
-                } else {
-                    (r.map(|_| panic!("任务失败")), TaskManager::new())
-                }
-            })
-            .unzip();
-        let map_f = |r| {
-            if let Ok(v) = r {
-                v
-            } else {
-                panic!("任务失败")
-            }
-        };
-        epub.volumes = volumes.into_iter().map(map_f).collect();
+        let results = volume_tasks.wait().await?;
+        let (volumes, mut chapter_tasks): (Vec<_>, Vec<_>) = results.into_iter().unzip();
+        epub.volumes = volumes.into_iter().collect();
 
         for volume in epub.volumes.iter_mut().rev() {
-            let chapters = chapter_tasks.pop().unwrap().wait().await;
-            let map_f = |r| {
-                if let Ok(c) = r {
-                    c
-                } else {
-                    panic!("任务失败")
-                }
-            };
-            volume.chapters = chapters.into_iter().map(map_f).collect();
+            let chapters = chapter_tasks.pop().unwrap().wait().await?;
+            volume.chapters = chapters.into_iter().collect();
             volume.chapters.sort_by_key(|c| c.index);
         }
         epub.volumes.sort_by_key(|v| v.index);
@@ -131,9 +108,8 @@ impl DoclnCrawler {
         processor: &Processor,
         downloader: &Downloader,
         parser: &Parser,
-    ) -> TaskManager<Result<(Volume, TaskManager<Result<Chapter>>)>> {
-        let mut task_manager: TaskManager<Result<(Volume, TaskManager<Result<Chapter>>)>> =
-            TaskManager::new();
+    ) -> TaskManager<(Volume, TaskManager<Chapter>)> {
+        let mut task_manager: TaskManager<(Volume, TaskManager<Chapter>)> = TaskManager::new();
         for volume in volumes {
             let processor = processor.clone();
             let downloader = downloader.clone();
@@ -150,8 +126,8 @@ impl DoclnCrawler {
         processor: &Processor,
         downloader: &Downloader,
         parser: &Parser,
-    ) -> TaskManager<Result<Chapter>> {
-        let mut task_manager: TaskManager<Result<Chapter>> = TaskManager::new();
+    ) -> TaskManager<Chapter> {
+        let mut task_manager: TaskManager<Chapter> = TaskManager::new();
         for chapter in chapters {
             let downloader = downloader.clone();
             let parser = parser.clone();
@@ -167,7 +143,7 @@ impl DoclnCrawler {
         processor: Processor,
         downloader: Downloader,
         parser: Parser,
-    ) -> impl Future<Output = Result<(Volume, TaskManager<Result<Chapter>>)>> {
+    ) -> impl Future<Output = Result<(Volume, TaskManager<Chapter>)>> {
         async move {
             if let Some(volume_cover_url) = &volume.cover {
                 let (cover_bytes, extension) = downloader.image(volume_cover_url).await?;

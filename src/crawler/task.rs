@@ -19,7 +19,7 @@ fn get_semaphore() -> &'static RwLock<Semaphore> {
 // 且后续可以方便的将结构体替换为单个joinset，因为全是关联方法
 // 而且可以等待不同类型的任务
 pub struct TaskManager<R: Send + 'static> {
-    tasks: JoinSet<R>,
+    tasks: JoinSet<Result<R>>,
 }
 
 impl<R: Send + 'static> TaskManager<R> {
@@ -31,14 +31,14 @@ impl<R: Send + 'static> TaskManager<R> {
 
     pub fn spawn<F>(&mut self, future: F)
     where
-        F: std::future::Future<Output = R> + Send + 'static,
+        F: std::future::Future<Output = Result<R>> + Send + 'static,
     {
         self.spawn_task_internal(future);
     }
 
     fn spawn_task_internal<F>(&mut self, future: F)
     where
-        F: std::future::Future<Output = R> + Send + 'static,
+        F: std::future::Future<Output = Result<R>> + Send + 'static,
     {
         // 包装原始future，添加并发控制
         // 如果volume future内需要等待chapter future
@@ -90,14 +90,11 @@ impl<R: Send + 'static> TaskManager<R> {
         Ok(())
     }
 
-    pub async fn wait(&mut self) -> Vec<R> {
+    pub async fn wait(&mut self) -> Result<Vec<R>> {
         let mut results = Vec::new();
         while let Some(res) = self.tasks.join_next().await {
-            match res {
-                Ok(value) => results.push(value),
-                Err(e) => eprintln!("任务出错: {}", e),
-            }
+            results.push(res??);
         }
-        results
+        Ok(results)
     }
 }

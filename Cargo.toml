@@ -9,17 +9,13 @@ edition = "2024"
 
 [dependencies]
 scraper = "0.24"
-serde_json = "1.0"
 chrono = "0.4"
 anyhow = "1.0"
 sha2 = "0.10"
 bytes = "1.10"
 tracing = "0.1"
+reqwest = "0.12"
 tracing-subscriber = "0.3"
-
-[dependencies.reqwest]
-version = "0.12"
-features = ["json"]
 
 [dependencies.tokio]
 version = "1"

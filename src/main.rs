@@ -6,7 +6,7 @@ use tracing::Level;
 
 use docln_fetch::{DoclnCrawler, get_user_input, display_elapsed_time};
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 

@@ -1,18 +1,24 @@
 use std::sync::OnceLock;
-use std::sync::RwLock as StdRwMutex;
+use std::thread::available_parallelism;
 
 use anyhow::Result;
 use tokio::sync::RwLock;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
+use tracing::info;
+use tracing::instrument;
 
 // OnceLock解决在多线程安全初始化的问题
 // Mutex解决多线程访问时的互斥问题
-static MAX_TASKS: StdRwMutex<usize> = StdRwMutex::new(5);
+// static MAX_TASKS: StdRwMutex<usize> = StdRwMutex::new(24);
 static SEMAPHORE: OnceLock<RwLock<Semaphore>> = OnceLock::new();
 
+#[instrument]
 fn get_semaphore() -> &'static RwLock<Semaphore> {
-    SEMAPHORE.get_or_init(|| RwLock::new(Semaphore::new(*MAX_TASKS.read().unwrap())))
+    SEMAPHORE.get_or_init(|| RwLock::new(Semaphore::new(available_parallelism().map_or(12, |n| {
+        info!("设置最大并发数为 {}", n.get());
+        n.get()
+}))))
 }
 
 // 使用一个结构体而不是单个joinset是为了方便有不同返回值
@@ -60,35 +66,35 @@ impl<R: Send + 'static> TaskManager<R> {
         self.tasks.spawn(controlled_future);
     }
 
-    pub fn add_permits(n: usize) {
-        {
-            let mut max_tasks = MAX_TASKS.write().unwrap();
-            *max_tasks += n;
-        }
-        let semaphore = get_semaphore();
-        let semaphore = semaphore.blocking_write();
-        semaphore.add_permits(n);
-    }
+    // pub fn add_permits(n: usize) {
+    //     {
+    //         let mut max_tasks = MAX_TASKS.write().unwrap();
+    //         *max_tasks += n;
+    //     }
+    //     let semaphore = get_semaphore();
+    //     let semaphore = semaphore.blocking_write();
+    //     semaphore.add_permits(n);
+    // }
 
-    pub async fn reduce_permits(n: usize) -> Result<()> {
-        if n >= *MAX_TASKS.read().unwrap() {
-            return Err(anyhow::anyhow!(
-                "不能减少超过当前最大并发数: {}",
-                *MAX_TASKS.read().unwrap()
-            ));
-        }
-        {
-            let mut max_tasks = MAX_TASKS.write().unwrap();
-            *max_tasks -= n;
-        }
-        let semaphore = get_semaphore();
-        let semaphore = semaphore.write().await;
-        for _ in 0..n {
-            let permit = semaphore.acquire().await?;
-            permit.forget();
-        }
-        Ok(())
-    }
+    // pub async fn reduce_permits(n: usize) -> Result<()> {
+    //     if n >= *MAX_TASKS.read().unwrap() {
+    //         return Err(anyhow::anyhow!(
+    //             "不能减少超过当前最大并发数: {}",
+    //             *MAX_TASKS.read().unwrap()
+    //         ));
+    //     }
+    //     {
+    //         let mut max_tasks = MAX_TASKS.write().unwrap();
+    //         *max_tasks -= n;
+    //     }
+    //     let semaphore = get_semaphore();
+    //     let semaphore = semaphore.write().await;
+    //     for _ in 0..n {
+    //         let permit = semaphore.acquire().await?;
+    //         permit.forget();
+    //     }
+    //     Ok(())
+    // }
 
     pub async fn wait(&mut self) -> Result<Vec<R>> {
         let mut results = Vec::new();

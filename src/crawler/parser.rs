@@ -162,7 +162,6 @@ impl Parser {
         let tags_selector = Selector::parse("div.series-gernes > a").expect("无法创建tags选择器");
 
         for tag_element in document.select(&tags_selector) {
-            println!("tag_element: {:?}", tag_element);
             let tag_text = tag_element.text().collect::<String>().trim().to_string();
             if !tag_text.is_empty() {
                 tags.push(tag_text);

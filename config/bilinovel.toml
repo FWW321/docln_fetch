@@ -12,6 +12,7 @@ rate_limit = { num = 10, secs = 1 }
 # 最大并行请求数
 concurrency_limit = 5
 
+# todo: 分为metadata和content
 [book]
 this = "div.container"
 
@@ -48,6 +49,7 @@ inner = { type = "Attr", name = "href" }
 this = "body"
 title_pattern = '^体育祭开幕(（\d+/\d+）)?$'
 
+# js执行能力
 [book.volumes.chapters.content.paragraphs]
 type = "Combine"
 separator = "\n"

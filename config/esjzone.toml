@@ -13,7 +13,7 @@ concurrency_limit = 5
 [book]
 this = "section.container"
 
-# 给每一个章节数组添加一个标识在哪个卷前的属性，适配章节和卷混合的情况
+# todo: 允许章和卷同时存在
 [book.title]
 type = "Text"
 selector = "div.book-detail > h2"

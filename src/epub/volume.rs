@@ -4,7 +4,6 @@ use crate::epub::chapter::Chapter;
 pub struct Volume {
     // pub title: String,
     pub index: usize,
-    pub id: String,
     pub cover: Option<String>,
     pub chapters: Vec<Chapter>,
     pub cover_chapter: Chapter,
@@ -42,7 +41,7 @@ impl Volume {
         if let Some(cover_name) = &self.cover {
             // 计算相对路径（假设cover_path已是相对OEBPS的路径）
             xhtml_content.push_str(&format!(
-                "        <img src=\"../images/{}\" alt=\"封面\" class=\"volume-cover-img\"/>",
+                "        <img src=\"../Images/{}\" alt=\"封面\" class=\"volume-cover-img\"/>",
                 cover_name
             ));
             xhtml_content.push('\n');

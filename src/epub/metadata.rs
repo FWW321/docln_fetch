@@ -2,6 +2,8 @@ use anyhow::Result;
 use tokio::fs;
 use tracing::{info, instrument};
 
+use crate::epub::{VolOrChap, chapter::Chapter};
+
 use super::Epub;
 
 pub struct Metadata;
@@ -71,7 +73,7 @@ impl Metadata {
     <head>
         <meta name="dtb:uid" content=""#,
         );
-        toc_ncx.push_str(&format!("docln:{}", epub.id));
+        toc_ncx.push_str(&format!("{}", epub.id));
         toc_ncx.push_str(
             r#""/>
         <meta name="dtb:depth" content="1"/>
@@ -88,47 +90,44 @@ impl Metadata {
     <navMap>"#,
         );
 
-        // 添加章节导航 - 层级结构
-        let mut nav_point_counter = 1;
-        for volume in &epub.volumes {
-            if volume.chapters.is_empty() {
-                continue;
-            }
+        match &epub.children {
+            VolOrChap::Volumes(volumes) => {
+                // 添加章节导航 - 层级结构
+                let mut nav_point_counter = 1;
+                for volume in volumes {
+                    if volume.chapters.is_empty() {
+                        continue;
+                    }
 
-            // 卷作为一级导航点
-            toc_ncx.push_str(&format!(
-                r#"
+                    // 卷作为一级导航点
+                    toc_ncx.push_str(&format!(
+                        r#"
         <navPoint id="navPoint{}" playOrder="{}">
             <navLabel>
                 <text>{}</text>
             </navLabel>
-            <content src="text/{}"/>"#,
-                nav_point_counter,
-                nav_point_counter,
-                volume.cover_chapter.title,
-                volume.cover_chapter.filename
-            ));
-            nav_point_counter += 1;
+            <content src="Text/{}"/>"#,
+                        nav_point_counter,
+                        nav_point_counter,
+                        volume.cover_chapter.title,
+                        volume.cover_chapter.filename
+                    ));
+                    nav_point_counter += 1;
 
-            // 章节作为卷的子导航点
-            for chapter in &volume.chapters {
-                toc_ncx.push_str(&format!(
-                    r#"
-            <navPoint id="navPoint{}" playOrder="{}">
-                <navLabel>
-                    <text>{}</text>
-                </navLabel>
-                <content src="text/{}"/>
-            </navPoint>"#,
-                    nav_point_counter, nav_point_counter, chapter.title, chapter.filename
-                ));
-                nav_point_counter += 1;
-            }
+                    // 章节作为卷的子导航点
+                    Self::toc_ncx_chapters(&mut toc_ncx, &volume.chapters, &mut nav_point_counter);
 
-            toc_ncx.push_str(
-                r#"
+                    toc_ncx.push_str(
+                        r#"
         </navPoint>"#,
-            );
+                    );
+                }
+            }
+            VolOrChap::Chapters(chapters) => {
+                // 添加章节导航 - 扁平结构
+                let mut nav_point_counter = 1;
+                Self::toc_ncx_chapters(&mut toc_ncx, chapters, &mut nav_point_counter);
+            }
         }
 
         toc_ncx.push_str(
@@ -140,6 +139,26 @@ impl Metadata {
         fs::write(epub.oebps_dir.join("toc.ncx"), toc_ncx).await?;
         info!("toc.ncx文件生成完成");
         Ok(())
+    }
+
+    fn toc_ncx_chapters(
+        toc_ncx: &mut String,
+        chapters: &Vec<Chapter>,
+        nav_point_counter: &mut usize,
+    ) {
+        for chapter in chapters {
+            toc_ncx.push_str(&format!(
+                r#"
+            <navPoint id="navPoint{}" playOrder="{}">
+                <navLabel>
+                    <text>{}</text>
+                </navLabel>
+                <content src="Text/{}"/>
+            </navPoint>"#,
+                nav_point_counter, nav_point_counter, chapter.title, chapter.filename
+            ));
+            *nav_point_counter += 1;
+        }
     }
 
     /// 生成所有元数据文件
@@ -171,7 +190,7 @@ impl Metadata {
         content_opf.push_str(
             r#"
     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
-        <dc:identifier id="BookId">docln:"#,
+        <dc:identifier id="BookId">"#,
         );
         content_opf.push_str(&epub.id.to_string());
         content_opf.push_str(
@@ -179,11 +198,12 @@ impl Metadata {
         <dc:title>"#,
         );
         content_opf.push_str(&epub.title);
-        content_opf.push_str(
+        content_opf.push_str(&format!(
             r#"</dc:title>
-        <dc:language>vi</dc:language>
+        <dc:language>{}</dc:language>
         <dc:creator opf:role="aut">"#,
-        );
+            epub.lang
+        ));
         content_opf.push_str(&epub.author);
         content_opf.push_str(r#"</dc:creator>"#);
 
@@ -219,13 +239,13 @@ impl Metadata {
 
         content_opf.push_str(
             r#"
-        <dc:publisher>docln-fetch</dc:publisher>
+        <dc:publisher>novel-fetch</dc:publisher>
         <dc:date>"#,
         );
         content_opf.push_str(&chrono::Local::now().format("%Y-%m-%d").to_string());
         content_opf.push_str(
             r#"</dc:date>
-        <meta name="generator" content="docln-fetch"/>
+        <meta name="generator" content="novel-fetch"/>
     </metadata>"#,
         );
         info!("opf的metadata部分生成完成");
@@ -244,55 +264,75 @@ impl Metadata {
         if let Some(cover_name) = &epub.cover {
             content_opf.push_str(&format!(
                 r#"
-        <item id="cover-image" href="images/{}" media-type="{}"/>"#,
+        <item id="cover-image" href="Images/{}" media-type="{}"/>"#,
                 cover_name,
                 Self::get_media_type(cover_name)
             ));
         }
 
         // 添加章节文件
-        for (i, volume) in epub.volumes.iter().enumerate() {
-            // 添加卷封面图片
-            if let Some(cover_name) = &volume.cover {
-                content_opf.push_str(&format!(
-                    r#"
-        <item id="vol{}-cover-img" href="images/{}" media-type="{}"/>"#,
-                    i + 1,
-                    cover_name,
-                    Self::get_media_type(cover_name)
-                ));
-            }
-            // 为有卷封面的卷添加章节0
-            if volume.cover.is_some() {
-                content_opf.push_str(&format!(
-                    r#"
-        <item id="vol{}-cover" href="text/{}" media-type="application/xhtml+xml"/>"#,
-                    i + 1,
-                    volume.cover_chapter.filename
-                ));
-            }
+        match &epub.children {
+            VolOrChap::Volumes(volumes) => {
+                for volume in volumes {
+                    // 添加卷封面图片
+                    if let Some(cover_name) = &volume.cover {
+                        content_opf.push_str(&format!(
+                            r#"
+        <item id="vol{}-cover-img" href="Images/{}" media-type="{}"/>"#,
+                            volume.index,
+                            cover_name,
+                            Self::get_media_type(cover_name)
+                        ));
+                    }
+                    // 为有卷封面的卷添加章节0
+                    if volume.cover.is_some() {
+                        content_opf.push_str(&format!(
+                            r#"
+        <item id="vol{}-cover" href="Text/{}" media-type="application/xhtml+xml"/>"#,
+                            volume.index, volume.cover_chapter.filename
+                        ));
+                    }
 
-            for (j, chapter) in volume.chapters.iter().enumerate() {
-                for image_name in &chapter.images {
-                    content_opf.push_str(&format!(
-                        r#"
-        <item id="img-{}" href="images/{}" media-type="{}"/>"#,
-                        image_name,
-                        image_name,
-                        Self::get_media_type(image_name)
-                    ));
+                    Self::opf_manifest_chapters(content_opf, &volume.chapters, Some(volume.index));
                 }
-                content_opf.push_str(&format!(
-                    r#"
-        <item id="chap{}-{}" href="text/{}" media-type="application/xhtml+xml"/>"#,
-                    i + 1,
-                    j + 1,
-                    chapter.filename
-                ));
+            }
+            VolOrChap::Chapters(chapters) => {
+                Self::opf_manifest_chapters(content_opf, chapters, None);
             }
         }
         content_opf.push_str(r#"    </manifest>"#);
         info!("opf的manifest部分生成完成");
+    }
+
+    fn opf_manifest_chapters(
+        content_opf: &mut String,
+        chapters: &Vec<Chapter>,
+        volume_index: Option<usize>,
+    ) {
+        for chapter in chapters {
+            for image_name in &chapter.images {
+                content_opf.push_str(&format!(
+                    r#"
+        <item id="img-{}" href="Images/{}" media-type="{}"/>"#,
+                    image_name,
+                    image_name,
+                    Self::get_media_type(image_name)
+                ));
+            }
+            if let Some(vol_idx) = volume_index {
+                content_opf.push_str(&format!(
+                    r#"
+        <item id="chap{}-{}" href="Text/{}" media-type="application/xhtml+xml"/>"#,
+                    vol_idx, chapter.index, chapter.filename
+                ));
+            } else {
+                content_opf.push_str(&format!(
+                    r#"
+        <item id="chap{}" href="Text/{}" media-type="application/xhtml+xml"/>"#,
+                    chapter.index, chapter.filename
+                ));
+            }
+        }
     }
 
     #[instrument(skip_all)]
@@ -305,23 +345,23 @@ impl Metadata {
         );
 
         // 添加章节到spine - 按卷的顺序添加
-        for (i, volume) in epub.volumes.iter().enumerate() {
-            // 没有封面的卷跳过
-            if volume.cover.is_some() {
-                content_opf.push_str(&format!(
-                    r#"
+        match &epub.children {
+            VolOrChap::Volumes(volumes) => {
+                for volume in volumes {
+                    // 没有封面的卷跳过
+                    if volume.cover.is_some() {
+                        content_opf.push_str(&format!(
+                            r#"
         <itemref idref="vol{}-cover"/>"#,
-                    i + 1
-                ));
-            }
+                            volume.index
+                        ));
+                    }
 
-            for (j, _) in volume.chapters.iter().enumerate() {
-                content_opf.push_str(&format!(
-                    r#"
-        <itemref idref="chap{}-{}"/>"#,
-                    i + 1,
-                    j + 1
-                ));
+                    Self::opf_spine_chapters(content_opf, &volume.chapters, Some(volume.index));
+                }
+            }
+            VolOrChap::Chapters(chapters) => {
+                Self::opf_spine_chapters(content_opf, chapters, None);
             }
         }
 
@@ -330,6 +370,28 @@ impl Metadata {
     </spine>"#,
         );
         info!("opf的spine部分生成完成");
+    }
+
+    pub fn opf_spine_chapters(
+        content_opf: &mut String,
+        chapters: &Vec<Chapter>,
+        volume_index: Option<usize>,
+    ) {
+        for chapter in chapters {
+            if let Some(vol_idx) = volume_index {
+                content_opf.push_str(&format!(
+                    r#"
+        <itemref idref="chap{}-{}"/>"#,
+                    vol_idx, chapter.index
+                ));
+            } else {
+                content_opf.push_str(&format!(
+                    r#"
+        <itemref idref="chap{}"/>"#,
+                    chapter.index
+                ));
+            }
+        }
     }
 
     #[instrument(skip_all)]
@@ -341,7 +403,7 @@ impl Metadata {
         content_opf.push_str(&format!(
             r#"
     <guide>
-        <reference type="cover" title="Cover" href="images/{}"/>
+        <reference type="cover" title="Cover" href="Images/{}"/>
     </guide>"#,
             cover_name
         ));

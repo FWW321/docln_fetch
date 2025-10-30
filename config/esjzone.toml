@@ -1,0 +1,53 @@
+name = "esjzone"
+
+base_url = "https://www.esjzone.one/detail/{id}.html"
+
+lang = "zh"
+
+# secs 秒内最多 num 次请求
+rate_limit = { num = 10, secs = 1 }
+
+# 最大并行请求数
+concurrency_limit = 5
+
+[book]
+this = "section.container"
+
+# 给每一个章节数组添加一个标识在哪个卷前的属性，适配章节和卷混合的情况
+[book.title]
+type = "Text"
+selector = "div.book-detail > h2"
+
+[book.author]
+type = "Next"
+current = "div.book-detail > ul.book-detail > li > strong"
+condition = "作者:"
+next = { type = "Text" }
+
+[book.summary]
+type = "Combine"
+separator = "\n"
+items = { type = "List", selector = "div.description", item = { type = "Text", selector = "p" } }
+
+[book.cover_url]
+type = "Url"
+inner = { type = "Attr", selector = "img", name = "src" }
+
+[book.chapters]
+this = "div#chapterList a"
+
+[book.chapters.title]
+type = "Text"
+selector = "p"
+
+[book.chapters.content_url]
+type = "Url"
+inner = { type = "Attr", name = "href" }
+
+[book.chapters.content]
+this = "body"
+
+[book.chapters.content.paragraphs]
+type = "Combine"
+separator = "\n"
+items = { type = "List", selector = "div.forum-content", item = { type = "Html", selector = "p" } }

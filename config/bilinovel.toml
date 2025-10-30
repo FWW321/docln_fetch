@@ -1,0 +1,64 @@
+name = "bilinovel"
+
+base_url = "http://109.206.245.54:1234/novel/{id}/catalog"
+
+lang = "zh"
+
+host = "https://www.bilinovel.com/"
+
+# secs 秒内最多 num 次请求
+rate_limit = { num = 10, secs = 1 }
+
+# 最大并行请求数
+concurrency_limit = 5
+
+[book]
+this = "div.container"
+
+[book.title]
+type = "Text"
+selector = "div.book-meta > h1"
+
+[book.author]
+type = "Text"
+selector = "div.book-meta > p > span > a"
+
+[book.volumes]
+this = "div#volume-list > div.volume"
+
+[book.volumes.title]
+type = "Text"
+selector = "h2"
+
+[book.volumes.cover_url]
+type = "Url"
+inner = { type = "Attr", selector = "a > img", name = "data-original" }
+
+[book.volumes.chapters]
+this = "ul > li > a"
+
+[book.volumes.chapters.title]
+type = "Text"
+
+[book.volumes.chapters.content_url]
+type = "Url"
+inner = { type = "Attr", name = "href" }
+
+[book.volumes.chapters.content]
+this = "body"
+title_pattern = '^体育祭开幕(（\d+/\d+）)?$'
+
+[book.volumes.chapters.content.paragraphs]
+type = "Combine"
+separator = "\n"
+items = { type = "List", selector = "div#TextContent", item = { type = "Html", selector = "p" } }
+
+[book.volumes.chapters.content.next_url]
+type = "Current"
+base = "div.mlfy_page > a"
+condition = "下一页"
+current = { type = "Attr", name = "href" }
+
+[book.volumes.chapters.content.title]
+type = "Text"
+selector = "h1"

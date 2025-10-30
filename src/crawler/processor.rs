@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
 use tokio::fs;
@@ -78,11 +78,6 @@ impl Processor {
         Ok(())
     }
 
-    // 如果形参需要所有权，那么最好不要将形参声明为引用
-    // 这样调用者就可以决定是克隆一个值还是直接传递所有权
-    // 而不是声明一个引用然后在函数体内克隆
-    // 用hash来命名插图文件，避免下载重复的插图
-    // 不用hashmap缓存会导致重复计算hash，但是这样逻辑更简单
     #[instrument(skip_all)]
     pub async fn write_image(&self, image_bytes: Bytes, extension: String) -> Result<String> {
         info!("正在保存图片: {}", extension);

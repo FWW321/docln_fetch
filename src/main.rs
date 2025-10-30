@@ -1,39 +1,33 @@
-use std::io::{self, Write};
-use std::time::Instant;
-
 use anyhow::Result;
-use tracing::Level;
 
-use docln_fetch::{DoclnCrawler, get_user_input, display_elapsed_time};
+use docln_fetch::config::get_site_config;
+use docln_fetch::{DoclnCrawler, get_user_input, logger};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
-
-    let crawler = DoclnCrawler::new();
+    logger::init();
 
     loop {
         println!("\n=== docln-fetch ===");
-        match get_user_input() {
-            Ok(ids) => {
-                let start = Instant::now();
-                crawler.crawl(ids).await?;
+        let site = get_user_input("请输入要爬取的网站")?;
 
-                let duration = start.elapsed();
-                display_elapsed_time(duration);
-            }
-            Err(e) => {
-                println!("输入错误: {}", e);
-            }
-        }
+        let (id, url) = get_site_config(&site)?.build_url();
 
-        print!("\n是否继续爬取其他小说? (y/n): ");
-        io::stdout().flush()?;
-        let mut continue_choice = String::new();
-        io::stdin().read_line(&mut continue_choice)?;
+        let crawler = DoclnCrawler::new(url, &site);
+
+        let Some(id) = id else {
+            println!("没有找到小说id, 请重试");
+            continue;
+        };
+
+        crawler.crawl(id, site).await?;
+
+        let continue_choice = get_user_input("是否继续爬取其他小说? (y/n): ")?;
+
         if continue_choice.trim().to_lowercase() != "y" {
             break;
         }
     }
+
     Ok(())
 }

@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_zip::tokio::write::ZipFileWriter;
 use async_zip::{Compression, ZipEntryBuilder};
 use tokio::fs::{self, File};
-use tracing::{error, info, instrument};
+use tracing::{info, instrument};
 
 use crate::crawler::TaskManager;
 
@@ -23,7 +23,6 @@ impl Compressor {
 
     #[instrument(skip_all)]
     pub async fn compress_epub(&self, epub_dir: &Path) -> Result<String> {
-        // 从目录名提取ID，目录名格式为 epub_{id}，转换为 docln_{id}
         let dir_name = epub_dir.file_name().unwrap().to_string_lossy();
         let filename = format!("{}.epub", dir_name);
         let epub_path = epub_dir.parent().unwrap().join(&filename);
@@ -41,13 +40,6 @@ impl Compressor {
         writer.close().await?;
 
         info!("EPUB文件已生成: {}", epub_path.display());
-
-        // 删除EPUB文件夹
-        info!("正在清理临时文件夹: {}", epub_dir.display());
-        match fs::remove_dir_all(epub_dir).await {
-            Ok(_) => info!("临时文件夹已删除: {}", epub_dir.display()),
-            Err(e) => error!("删除临时文件夹时出错: {}: {}", epub_dir.display(), e),
-        }
 
         Ok(filename)
     }

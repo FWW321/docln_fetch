@@ -1,0 +1,90 @@
+name = "docln"
+
+base_url = "https://docln.net/sang-tac/{id}"
+
+lang = "vi"
+
+# secs 秒内最多 num 次请求
+rate_limit = { num = 10, secs = 1 }
+
+# 最大并行请求数
+concurrency_limit = 5
+
+[book]
+this = "div.d-block"
+
+[book.title]
+type = "Text"
+selector = "span.series-name > a"
+
+[book.author]
+type = "Next"
+current = "span.info-name"
+condition = "Tác giả:"
+next = { type = "Text", selector = "a" }
+
+[book.illustrator]
+type = "Next"
+current = "span.info-name"
+condition = "Họa sĩ:"
+next = { type = "Text", selector = "a" }
+
+[book.tags]
+type = "List"
+selector = "div.series-gernes"
+item = { type = "Text", selector = "a" }
+
+[book.summary]
+type = "Combine"
+separator = "\n"
+items = { type = "List", selector = "div.summary-content", item = { type = "Text", selector = "p" } }
+
+[book.cover_url]
+type = "Url"
+inner = { type = "Attr", selector = "div.content.img-in-ratio", name = "style" }
+
+[book.volumes]
+this = "section.volume-list"
+
+[book.volumes.title]
+type = "Text"
+selector = "header > span.sect-title"
+
+[book.volumes.cover_url]
+type = "Url"
+inner = { type = "Attr", selector = "div.volume-cover div.content.img-in-ratio", name = "style" }
+
+[book.volumes.chapters]
+this = "ul.list-chapters > li > div.chapter-name"
+
+[book.volumes.chapters.title]
+type = "Text"
+selector = "a"
+
+[book.volumes.chapters.content_url]
+type = "Url"
+inner = { type = "Attr", selector = "a", name = "href" }
+
+[book.volumes.chapters.content]
+this = "body"
+
+[book.volumes.chapters.content.paragraphs]
+type = "Combine"
+separator = "\n"
+items = { type = "List", selector = "div#chapter-content", item = { type = "Html", selector = "p" } }
+
+# [book.chapters]
+# this = "ul.list-chapters > li > div.chapter-name"
+
+# [book.chapters.title]
+# type = "Text"
+# selector = "a"
+
+# [book.chapters.content_url]
+# type = "Url"
+# inner = { type = "Attr", selector = "a", name = "href" }
+
+# [book.chapters.paragraphs]
+# type = "Combine"
+# separator = "\n"
+# items = { type = "List", selector = "div#chapter-content", item = { type = "Html", selector = "p" } }

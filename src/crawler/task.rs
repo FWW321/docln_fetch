@@ -1,9 +1,6 @@
 use anyhow::Result;
 use tokio::task::JoinSet;
 
-// 使用一个结构体而不是单个joinset是为了方便有不同返回值
-// 且后续可以方便的将结构体替换为单个joinset，因为全是关联方法
-// 而且可以等待不同类型的任务
 pub struct TaskManager<R: Send + 'static> {
     tasks: JoinSet<Result<R>>,
 }

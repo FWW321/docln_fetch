@@ -1,38 +1,53 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
-use scraper::{Element, Html, Selector};
-use tracing::{info, error, instrument};
+use scraper::element_ref::Select;
+use scraper::{ElementRef, Html, Selector};
+use tracing::{error, info, instrument};
 
+use crate::config::{SiteConfig, get_site_config};
+use crate::epub;
 use crate::epub::chapter::Chapter;
+use crate::extractor::{ChapterExtractor, Value, VolumeExtractor};
 use crate::{Volume, epub::Epub};
 
-#[derive(Clone)]
-pub struct Parser;
+#[derive(Clone, Copy)]
+pub struct Parser {
+    config: &'static SiteConfig,
+}
+
+impl Parser {
+    pub fn new(site_name: &str) -> Self {
+        Self {
+            config: get_site_config(site_name).unwrap(),
+        }
+    }
+}
 
 impl Parser {
     #[instrument(skip_all)]
     pub fn chapter_content(&self, chapter: String) -> Result<String> {
-        let mut chapter_paragraphs = Vec::new();
-        // Html结构体不是Send的，所以不能跨越await点
-        // 需要在await点之前drop掉
         let document = Html::parse_document(&chapter);
 
-        info!("正在解析章节内容");
-        // 提取章节内容
-        let chapter_content_selector = Selector::parse("div#chapter-content")
-            .map_err(|e| anyhow::anyhow!("无法解析章节内容选择器: {}", e))?;
+        let content_extractor = &self
+            .config
+            .get_chapter_config()
+            .ok_or_else(|| anyhow::anyhow!("未配置章节提取器"))?
+            .content;
 
-        if let Some(content_div) = document.select(&chapter_content_selector).next() {
-            // 获取所有段落
-            let p_selector =
-                Selector::parse("p").map_err(|e| anyhow::anyhow!("无法解析段落选择器: {}", e))?;
-            for p_element in content_div.select(&p_selector) {
-                chapter_paragraphs.push(p_element.html());
-            }
+        let content_elem = document
+            .select(&content_extractor.this)
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("无法找到章节内容"))?;
+
+        let content = content_extractor
+            .extract_paragraphs(content_elem);
+
+        if let Value::Single(content) = content {
+            info!("章节内容提取完成");
+            Ok(content)
+        } else {
+            error!("章节内容提取失败");
+            Err(anyhow::anyhow!("章节内容提取失败"))
         }
-        info!("章节内容解析完成");
-        Ok(chapter_paragraphs.join("\n"))
     }
 
     pub fn chapter_srcs(&self, chapter_content: &str) -> Vec<String> {
@@ -53,154 +68,55 @@ impl Parser {
     }
 
     #[instrument(skip_all)]
-    pub fn novel_title(&self, document: &Html) -> Result<String> {
-        let title_selector = Selector::parse("span.series-name > a")
-            .map_err(|e| anyhow::anyhow!("无法解析标题选择器: {}", e))?;
-            info!("正在解析小说标题");
-        let title = document
-            .select(&title_selector)
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("未找到小说标题"))?
-            .text()
-            .collect::<String>()
-            .trim()
-            .to_string();
-        info!("小说标题解析完成: {}", title);
-        Ok(title)
-    }
-
-    #[instrument(skip_all)]
-    pub fn summary(&self, document: &Html) -> Result<String> {
-        let summary_selector = Selector::parse("div.summary-content > p")
-            .map_err(|e| anyhow::anyhow!("无法解析简介选择器: {}", e))?;
-
-        info!("正在解析小说简介");
-        let summary_paragraphs: Vec<String> = document
-            .select(&summary_selector)
-            .map(|p| p.text().collect::<String>().trim().to_string())
-            .filter(|text| !text.is_empty())
-            .collect();
-
-        if summary_paragraphs.is_empty() {
-            return Err(anyhow::anyhow!("未找到简介内容"));
-        }
-        info!("小说简介解析完成");
-        Ok(summary_paragraphs.join("\n"))
-    }
-
-    pub fn items(&self, document: &Html) -> Result<HashMap<String, String>> {
-        let mut info_map = HashMap::new();
-        let info_item_selector = Selector::parse("div.info-item")
-            .map_err(|e| anyhow::anyhow!("无法解析信息项选择器: {}", e))?;
-        let info_name_selector = Selector::parse("span.info-name")
-            .map_err(|e| anyhow::anyhow!("无法解析信息名称选择器: {}", e))?;
-        let info_value_selector = Selector::parse("span.info-value")
-            .map_err(|e| anyhow::anyhow!("无法解析信息值选择器: {}", e))?;
-
-        for info_item in document.select(&info_item_selector) {
-            let Some(info_name_element) = info_item.select(&info_name_selector).next() else {
-                continue;
-            };
-            let info_name = info_name_element
-                .text()
-                .collect::<String>()
-                .trim()
-                .to_string();
-
-            let Some(info_value_element) = info_item.select(&info_value_selector).next() else {
-                continue;
-            };
-            let info_value = info_value_element
-                .text()
-                .collect::<String>()
-                .trim()
-                .to_string();
-
-            if !info_name.is_empty() && !info_value.is_empty() {
-                info_map.insert(info_name, info_value);
-            }
-        }
-
-        if info_map.is_empty() {
-            return Err(anyhow::anyhow!("未找到任何信息项"));
-        }
-
-        Ok(info_map)
-    }
-
-    #[instrument(skip_all)]
-    pub fn author(&self, items: &HashMap<String, String>) -> Result<String> {
-        info!("正在解析作者信息");
-        if let Some(author) = items.get("Tác giả:") {
-            info!("作者信息解析完成: {}", author);
-            Ok(author.clone())
-        } else {
-            error!("未找到作者信息");
-            Err(anyhow::anyhow!("未找到作者信息"))
-        }
-    }
-
-    #[instrument(skip_all)]
-    pub fn illustrator(&self, items: &HashMap<String, String>) -> Result<Option<String>> {
-        info!("正在解析插画师信息");
-        if let Some(illustrator) = items.get("Họa sĩ:") {
-            if !illustrator.is_empty() {
-                info!("插画师信息解析完成: {}", illustrator);
-                Ok(Some(illustrator.clone()))
-            } else {
-                info!("未找到插画师信息");
-                Ok(None)
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    #[instrument(skip_all)]
-    pub fn tags(&self, document: &Html) -> Vec<String> {
-        let mut tags = Vec::new();
-        let tags_selector = Selector::parse("div.series-gernes > a").expect("无法创建tags选择器");
-
-        for tag_element in document.select(&tags_selector) {
-            let tag_text = tag_element.text().collect::<String>().trim().to_string();
-            if !tag_text.is_empty() {
-                tags.push(tag_text);
-            }
-        }
-        info!("标签信息解析完成: {:?}", tags);
-        tags
-    }
-
-    #[instrument(skip_all)]
     pub fn novel_info(&self, novel_html: &str, novel_id: String) -> Result<Epub> {
         info!("正在解析小说信息");
         let document = Html::parse_document(novel_html);
 
-        let title = self.novel_title(&document)?;
+        let book_extractor = self.config.get_book_config();
 
-            let items = self.items(&document)?;
+        let Some(book_elem) = book_extractor.this(document.root_element()) else {
+            anyhow::bail!("无法获取小说元素")
+        };
 
-        let author = self.author(&items)?;
+        let Value::Single(title) = book_extractor.extract_title(book_elem) else {
+            anyhow::bail!("无法提取小说标题");
+        };
 
-        let illustrator = self.illustrator(&items)?;
+        let Value::Single(author) = book_extractor.extract_author(book_elem) else {
+            anyhow::bail!("无法提取作者信息");
+        };
 
-        let summary = self.summary(&document)?;
+        let tags = match book_extractor.extract_tags(book_elem) {
+            Value::Multiple(ts) => ts,
+            _ => Vec::new(),
+        };
 
-        let tags = self.tags(&document);
+        let illustrator = match book_extractor.extract_illustrator(book_elem) {
+            Value::Single(illust) => Some(illust),
+            _ => None,
+        };
 
-        let cover = self.cover_url(&document);
+        let cover = match book_extractor.extract_cover_url(book_elem) {
+            Value::Single(cover_url) => Some(cover_url),
+            _ => None,
+        };
 
-        let volumes = self.volumes(&document)?;
+        let summary = match book_extractor.extract_summary(book_elem) {
+            Value::Single(s) => s,
+            _ => String::new(),
+        };
 
-        // 创建Epub结构体（其他字段将在后续处理中填充）
+        let children = self.children(book_elem)?;
+
         let epub = Epub {
             id: novel_id,
-            title,
+            title: title.trim().to_string(),
+            lang: self.config.lang.clone(),
             author,
             illustrator,
             summary,
             cover,
-            volumes,
+            children,
             tags,
             epub_dir: Default::default(),
             meta_dir: Default::default(),
@@ -213,45 +129,66 @@ impl Parser {
         Ok(epub)
     }
 
-    #[instrument(skip_all)]
-    pub fn cover_url(&self, document: &Html) -> Option<String> {
-        info!("正在解析封面图片信息");
-        let cover_selector = Selector::parse("div.content.img-in-ratio").unwrap();
-        let cover_div = document.select(&cover_selector).next()?;
-        let style = cover_div.value().attr("style")?;
-        let start = style.find("url('")? + 5; // 跳过 "url('"
-        let end = style[start..].find("')")?;
+    pub fn children(&self, book_elem: ElementRef) -> Result<epub::VolOrChap> {
+        let book_extractor = self.config.get_book_config();
 
-        let image_url = &style[start..start + end];
+        let mut result = Err(anyhow::anyhow!("未配置卷或章节提取器"));
 
-        if image_url.contains("nocover") {
-            info!("使用默认封面图片，跳过下载");
-            return None;
+        if let Some(volume_extractor) = &book_extractor.volumes {
+            let volume_iter = book_elem.select(&volume_extractor.this);
+            let volumes = self.volumes(volume_iter, volume_extractor)?;
+            if volumes.is_empty() {
+                if let Some(chapter_extractor) = &book_extractor.chapters {
+                    let chapter_iter = book_elem.select(&chapter_extractor.this);
+                    let chapters = self.chapters(chapter_iter, chapter_extractor, None)?;
+                    result = Ok(epub::VolOrChap::Chapters(chapters))
+                }
+            } else {
+                result = Ok(epub::VolOrChap::Volumes(volumes));
+            }
+        } else {
+            if let Some(chapter_extractor) = &book_extractor.chapters {
+                let chapter_iter = book_elem.select(&chapter_extractor.this);
+                let chapters = self.chapters(chapter_iter, chapter_extractor, None)?;
+                result = Ok(epub::VolOrChap::Chapters(chapters))
+            }
         }
 
-        info!("封面图片解析完成: {}", image_url);
-        Some(image_url.to_string())
+        result
     }
 
     #[instrument(skip_all)]
-    pub fn volumes(&self, document: &Html) -> Result<Vec<Volume>> {
+    pub fn volumes(&self, iter: Select, extractor: &VolumeExtractor) -> Result<Vec<Volume>> {
         info!("正在解析卷和章节信息");
+
         let mut volumes = Vec::new();
-        let volume_infos = self.volume_info(document);
-        for (index, (title, id)) in volume_infos.into_iter().enumerate() {
-            let chapters = self.volume_chapters(document, &id, index);
-            let cover_url = self.volume_cover_url(document, &id);
+
+        for (volume_index, volume_elem) in iter.enumerate() {
+            let Value::Single(title) = extractor.extract_title(volume_elem) else {
+                anyhow::bail!("无法提取第 {} 卷标题", volume_index + 1);
+            };
+
+            let cover_url = match extractor.extract_cover_url(volume_elem) {
+                Value::Single(url) => Some(url),
+                _ => None,
+            };
+
             let cover_chapter = Chapter {
                 index: 0,
-                title,
+                title: title.trim().to_string(),
                 url: String::new(),
-                has_illustrations: cover_url.is_some(),
-                filename: format!("{}_cover.xhtml", index + 1),
+                filename: format!("{}_cover.xhtml", volume_index + 1),
                 images: Vec::new(),
             };
+
+            let chapters = self.chapters(
+                volume_elem.select(&extractor.chapters.this),
+                &extractor.chapters,
+                Some(volume_index),
+            )?;
+
             volumes.push(Volume {
-                index,
-                id,
+                index: volume_index + 1,
                 cover: cover_url,
                 chapters,
                 cover_chapter,
@@ -261,140 +198,53 @@ impl Parser {
         Ok(volumes)
     }
 
-    #[instrument(skip_all)]
-    pub fn volume_info(&self, document: &Html) -> Vec<(String, String)> {
-        info!("正在解析卷信息");
-        let mut volumes = Vec::new();
-        let list_vol_section_selector = Selector::parse("section#list-vol").unwrap();
-        let list_volume_selector = Selector::parse("ol.list-volume").unwrap();
-        let volume_item_selector = Selector::parse("li").unwrap();
-        let volume_title_selector = Selector::parse("span.list_vol-title").unwrap();
-
-        let Some(list_vol_section) = document.select(&list_vol_section_selector).next() else {
-            return volumes;
-        };
-
-        let Some(list_volume) = list_vol_section.select(&list_volume_selector).next() else {
-            return volumes;
-        };
-
-        for volume_item in list_volume.select(&volume_item_selector) {
-            // 获取卷标题
-            let volume_title = volume_item
-                .select(&volume_title_selector)
-                .next()
-                .map(|span| span.text().collect::<String>().trim().to_string())
-                .unwrap_or_else(|| "未知卷".to_string());
-
-            // 获取卷的data-scrollto属性
-            let volume_id = volume_item
-                .value()
-                .attr("data-scrollto")
-                .unwrap_or("")
-                .to_string();
-
-            if !volume_id.is_empty() {
-                volumes.push((volume_title, volume_id));
-            }
-        }
-
-        info!("卷信息解析完成，共 {} 卷", volumes.len());
-        volumes
-    }
-
-    #[instrument(skip_all)]
-    pub fn volume_chapters(&self, document: &Html, volume_id: &str, index: usize) -> Vec<Chapter> {
-        info!("正在解析第 {} 卷的章节信息", index + 1);
+    pub fn chapters(
+        &self,
+        iter: Select,
+        extractor: &ChapterExtractor,
+        volume_index: Option<usize>,
+    ) -> Result<Vec<Chapter>> {
         let mut chapters = Vec::new();
 
-        // 根据volume_id找到对应的卷元素
-        let volume_element_id = volume_id.trim_start_matches('#');
-        let volume_header_selector =
-            Selector::parse(&format!("header#{}", volume_element_id)).unwrap();
-        let list_chapters_selector = Selector::parse("ul.list-chapters").unwrap();
-        let chapter_item_selector = Selector::parse("li").unwrap();
-        let chapter_name_selector = Selector::parse("div.chapter-name").unwrap();
-        let chapter_link_selector = Selector::parse("a").unwrap();
-        let illustration_icon_selector = Selector::parse("i").unwrap();
-
-        let Some(volume_header) = document.select(&volume_header_selector).next() else {
-            return chapters;
-        };
-
-        let Some(parent_element) = volume_header.parent_element() else {
-            return chapters;
-        };
-
-        let Some(chapters_list) = parent_element.select(&list_chapters_selector).next() else {
-            return chapters;
-        };
-
-        for (chapter_index, chapter_item) in
-            chapters_list.select(&chapter_item_selector).enumerate()
-        {
-            // 查找章节名称和链接
-            let Some(chapter_name_div) = chapter_item.select(&chapter_name_selector).next() else {
-                continue;
+        for (chapter_index, chapter_elem) in iter.enumerate() {
+            let Value::Single(title) = extractor.extract_title(chapter_elem) else {
+                if let Some(vol_idx) = volume_index {
+                    anyhow::bail!(
+                        "无法提取第 {} 卷第 {} 章标题",
+                        vol_idx + 1,
+                        chapter_index + 1
+                    );
+                } else {
+                    anyhow::bail!("无法提取第 {} 章标题", chapter_index + 1);
+                }
             };
 
-            let Some(chapter_link) = chapter_name_div.select(&chapter_link_selector).next() else {
-                continue;
+            let Value::Single(url) = extractor.extract_content_url(chapter_elem) else {
+                if let Some(vol_idx) = volume_index {
+                    anyhow::bail!(
+                        "无法提取第 {} 卷第 {} 章内容链接",
+                        vol_idx + 1,
+                        chapter_index + 1
+                    );
+                } else {
+                    anyhow::bail!("无法提取第 {} 章内容链接", chapter_index + 1);
+                }
             };
 
-            let chapter_title = chapter_link.text().collect::<String>().trim().to_string();
+            let filename = if let Some(vol_idx) = volume_index {
+                format!("{}_{}.xhtml", vol_idx + 1, chapter_index + 1)
+            } else {
+                format!("{}.xhtml", chapter_index + 1)
+            };
 
-            let chapter_url = chapter_link.value().attr("href").unwrap_or("").to_string();
-
-            // 检查是否包含插图图标
-            let has_illustrations = chapter_name_div
-                .select(&illustration_icon_selector)
-                .next()
-                .is_some();
-
-            let filename = format!("{}_{}.xhtml", index + 1, chapter_index + 1);
-
-            if !chapter_title.is_empty() && !chapter_url.is_empty() {
-                chapters.push(Chapter {
-                    index: chapter_index,
-                    title: chapter_title,
-                    url: chapter_url,
-                    has_illustrations,
-                    filename,
-                    images: Vec::new(),
-                });
-            }
+            chapters.push(Chapter {
+                index: chapter_index + 1,
+                title: title.trim().to_string(),
+                url,
+                filename,
+                images: Vec::new(),
+            });
         }
-
-        info!(
-            "第 {} 卷的章节信息解析完成，共 {} 章",
-            index + 1,
-            chapters.len()
-        );
-        chapters
-    }
-
-    #[instrument(skip_all)]
-    pub fn volume_cover_url(&self, document: &Html, volume_id: &str) -> Option<String> {
-        info!("正在解析卷封面图片信息");
-        let volume_element_id = volume_id.trim_start_matches('#');
-        let volume_header_selector =
-            Selector::parse(&format!("header#{}", volume_element_id)).unwrap();
-        let volume_cover_selector =
-            Selector::parse("div.volume-cover div.content.img-in-ratio").unwrap();
-
-        let volume_header = document.select(&volume_header_selector).next()?;
-        let parent_element = volume_header.parent_element()?;
-        let cover_div = parent_element.select(&volume_cover_selector).next()?;
-        let style = cover_div.value().attr("style")?;
-        let start = style.find("url('")? + 5; // 跳过 "url('"
-        let end = style[start..].find("')")?;
-        let image_url = &style[start..start + end];
-
-        if image_url.contains("nocover") {
-            info!("使用默认封面图片，跳过下载");
-            return None;
-        }
-        info!("卷封面图片解析完成: {}", image_url);
-        Some(image_url.to_string())
+        Ok(chapters)
     }
 }

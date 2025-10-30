@@ -1,0 +1,46 @@
+name = "syosetu"
+
+base_url = "https://ncode.syosetu.com/{id}/"
+
+lang = "jp"
+
+# secs 秒内最多 num 次请求
+rate_limit = { num = 10, secs = 1 }
+
+# 最大并行请求数
+concurrency_limit = 5
+
+[book]
+this = "article.p-novel"
+
+# todo: 允许章和卷同时存在
+[book.title]
+type = "Text"
+selector = "h1"
+
+[book.author]
+type = "Text"
+selector = "div.p-novel__author > a"
+
+[book.summary]
+type = "Combine"
+separator = "\n"
+items = { type = "List", selector = "div.p-novel__summary", item = { type = "Text", selector = "font" } }
+
+[book.chapters]
+this = "div.p-eplist > div.p-eplist__sublist > a"
+
+[book.chapters.title]
+type = "Text"
+
+[book.chapters.content_url]
+type = "Url"
+inner = { type = "Attr", name = "href" }
+
+[book.chapters.content]
+this = "body"
+
+[book.chapters.content.paragraphs]
+type = "Combine"
+separator = "\n"
+items = { type = "List", selector = "div.p-novel__body", item = { type = "Html", selector = "p" } }

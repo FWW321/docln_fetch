@@ -1,7 +1,7 @@
 [auth.esjzone.Cookies]
-ews_key = "efcd3f90f78EEGlTQWvJl3Qib31HDJORFZhGH0_Gk2rpencND1p-9R5vz-2RMW_1I"
-ews_token = "96649a4628fBPCJu0CTYYvlW_PDSMQOsnUM3DeSR3UnY8ojgQPuDNmGSRvoQx0mQCFgw"
+ews_key = ""
+ews_token = ""
 
 [auth.linovelib.Cookies]
-PHPSESSID = "j805dd5gkho7736q3a1fjdp7r4"
-jieqiUserInfo = "jieqiUserId%3D266098%2CjieqiUserUname%3Dfww%2CjieqiUserName%3Dfww%2CjieqiUserGroup%3D3%2CjieqiUserGroupName%3D%E6%99%AE%E9%80%9A%E4%BC%9A%E5%91%98%2CjieqiUserVip%3D0%2CjieqiUserHonorId%3D3%2CjieqiUserHonor%3D%E4%B8%AD%E4%BA%8C%2CjieqiUserToken%3Dcab8afd5c7a4cd46fca97595176173ae%2CjieqiCodeLogin%3D0%2CjieqiCodePost%3D0%2CjieqiUserPassword%3D81c1d9ce1f4153bbaf8c4f0c67177753%2CjieqiUserLogin%3D1761802876"
+PHPSESSID = ""
+jieqiUserInfo = ""
